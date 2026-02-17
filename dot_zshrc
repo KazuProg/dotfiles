@@ -1,0 +1,18 @@
+export PATH="$HOME/.local/bin:$PATH"
+
+HISTSIZE=10000
+SAVEHIST=10000
+HISTFILE=~/.zsh_history
+setopt append_history
+setopt share_history
+setopt hist_ignore_dups
+setopt correct
+
+autoload -Uz compinit && compinit
+zstyle ':completion:*' menu select
+zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
+
+if command -v sheldon &> /dev/null; then
+    eval "$(sheldon source)"
+fi
+

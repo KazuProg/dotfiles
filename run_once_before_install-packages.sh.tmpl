@@ -1,0 +1,23 @@
+{{ if eq .chezmoi.os "linux" -}}
+#!/bin/bash
+
+echo "Installing tools for Ubuntu..."
+
+sudo apt update
+sudo apt install -y zsh curl git
+
+if ! command -v starship &> /dev/null; then
+    curl -sS https://starship.rs/install.sh | sh
+fi
+
+if ! command -v sheldon &> /dev/null; then
+    curl --proto '=https' -fLsS https://rossmacarthur.github.io/install/crate.sh | bash -s -- --repo rossmacarthur/sheldon --to ~/.local/bin
+
+fi
+
+if [ "$SHELL" != "$(which zsh)" ]; then
+    chsh -s $(which zsh)
+fi
+
+{{ end -}}
+
