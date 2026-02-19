@@ -12,7 +12,7 @@ fi
 
 if ! command -v sheldon &> /dev/null; then
     curl --proto '=https' -fLsS https://rossmacarthur.github.io/install/crate.sh | bash -s -- --repo rossmacarthur/sheldon --to ~/.local/bin
-
+    eval "$(sheldon source)"
 fi
 
 if [ "$SHELL" != "$(which zsh)" ]; then
