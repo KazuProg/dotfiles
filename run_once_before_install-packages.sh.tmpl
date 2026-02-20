@@ -1,27 +1,26 @@
 {{ if eq .chezmoi.os "linux" -}}
 #!/bin/bash
+set -euo pipefail
 
-echo "Installing tools for Ubuntu..."
+sudo -v
 
 sudo apt update
-sudo apt install -y zsh curl git
+sudo apt install -y curl git zsh
 
-if ! command -v starship &> /dev/null; then
-    curl -sS https://starship.rs/install.sh | sh -s -- -y
+if ! command -v cargo-binstall &> /dev/null; then
+    export PATH="$HOME/.cargo/bin:$PATH"
+    curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
 fi
 
-if ! command -v sheldon &> /dev/null; then
-    curl --proto '=https' -fLsS https://rossmacarthur.github.io/install/crate.sh | bash -s -- --repo rossmacarthur/sheldon --to ~/.local/bin
-    eval "$(sheldon source)"
-fi
+cargo-binstall -y mise sheldon starship
 
 if ! command -v docker &> /dev/null; then
     curl -fsSL https://get.docker.com | sudo sh
 fi
 
-if [ "$SHELL" != "$(which zsh)" ]; then
-    chsh -s $(which zsh)
+ZSH_PATH=$(which zsh)
+if [ "$SHELL" != "$ZSH_PATH" ]; then
+    sudo chsh -s "$ZSH_PATH" "$USER"
 fi
 
 {{ end -}}
-
