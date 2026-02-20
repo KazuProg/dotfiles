@@ -1,4 +1,9 @@
-export PATH="$HOME/.local/bin:$PATH"
+typeset -U path PATH
+path=(
+    $HOME/.local/bin
+    $HOME/.cargo/bin
+    $path
+)
 
 HISTSIZE=10000
 SAVEHIST=10000
