@@ -19,4 +19,10 @@ if [ "$SHELL" != "$ZSH_PATH" ]; then
     sudo chsh -s "$ZSH_PATH" "$USER"
 fi
 
+mkdir -p "$HOME/.ssh"
+if [ ! -f "$HOME/.ssh/id_ed25519" ]; then
+    ssh-keygen -t ed25519 -N "" -f "$HOME/.ssh/id_ed25519"
+fi
+
 {{ end -}}
+
