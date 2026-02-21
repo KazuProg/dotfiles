@@ -14,10 +14,6 @@ fi
 
 cargo-binstall -y mise sheldon starship
 
-if ! command -v docker &> /dev/null; then
-    curl -fsSL https://get.docker.com | sudo sh
-fi
-
 ZSH_PATH=$(which zsh)
 if [ "$SHELL" != "$ZSH_PATH" ]; then
     sudo chsh -s "$ZSH_PATH" "$USER"
