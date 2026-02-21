@@ -2,5 +2,5 @@
 
 ```
 sudo -v
-sh -c "$(curl -fsLS get.chezmoi.io)" -- init --apply KazuProg
+sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin" init --apply KazuProg
 ```
