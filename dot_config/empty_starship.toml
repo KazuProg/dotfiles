@@ -7,4 +7,3 @@ error_symbol = "[>](bold red)"
 [directory]
 truncation_length = 3
 style = "bold cyan"
-

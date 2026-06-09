@@ -19,4 +19,3 @@ zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
 if command -v sheldon &> /dev/null; then
     eval "$(sheldon source)"
 fi
-

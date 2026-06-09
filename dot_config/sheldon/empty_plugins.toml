@@ -8,4 +8,3 @@ github = "zsh-users/zsh-syntax-highlighting"
 
 [plugins.starship]
 inline = 'eval "$(starship init zsh)"'
-
