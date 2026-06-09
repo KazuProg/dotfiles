@@ -12,7 +12,9 @@ if ! command -v cargo-binstall &> /dev/null; then
     curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
 fi
 
-cargo-binstall -y mise sheldon starship
+cargo-binstall -y mise sheldon starship uv
+
+uv tool install pre-commit
 
 ZSH_PATH=$(which zsh)
 if [ "$SHELL" != "$ZSH_PATH" ]; then
