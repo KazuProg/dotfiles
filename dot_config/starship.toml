@@ -4,6 +4,9 @@ add_newline = false
 success_symbol = "[>](bold green)"
 error_symbol = "[>](bold red)"
 
+[container]
+disabled = true
+
 [directory]
 truncation_length = 3
 style = "bold cyan"
