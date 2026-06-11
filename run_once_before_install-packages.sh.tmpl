@@ -1,16 +1,46 @@
-{{ if eq .chezmoi.os "linux" -}}
 #!/bin/bash
 set -euo pipefail
 
+export XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+export CARGO_HOME="${XDG_DATA_HOME}/cargo"
+export PATH="${HOME}/.local/bin:${CARGO_HOME}/bin:${PATH}"
+
+{{ if eq .chezmoi.os "darwin" -}}
+if ! command -v brew &> /dev/null; then
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+fi
+
+brew bundle install --file="${CHEZMOI_SOURCE_DIR}/dot_Brewfile"
+{{ end -}}
+{{ if eq .chezmoi.os "linux" -}}
 sudo -v
 
 sudo apt update
-sudo apt install -y curl git zsh
+sudo apt install -y curl git gnupg jq ncdu shellcheck tmux tree wget zsh
 
-export XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
-export CARGO_HOME="${XDG_DATA_HOME}/cargo"
+if ! command -v gh &> /dev/null; then
+    sudo mkdir -p -m 755 /etc/apt/keyrings
+    wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null
+    sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+    sudo apt update
+    sudo apt install -y gh
+fi
+
+if ! command -v terraform &> /dev/null; then
+    wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+    echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(. /etc/os-release && echo "$VERSION_CODENAME") main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+    sudo apt update
+    sudo apt install -y terraform
+fi
+
 export RUSTUP_HOME="${XDG_DATA_HOME}/rustup"
-export PATH="${HOME}/.local/bin:${CARGO_HOME}/bin:${PATH}"
+
+ZSH_PATH=$(which zsh)
+if [ "$SHELL" != "$ZSH_PATH" ]; then
+    sudo chsh -s "$ZSH_PATH" "$USER"
+fi
+{{ end -}}
 
 if ! command -v cargo-binstall &> /dev/null; then
     curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
@@ -20,15 +50,7 @@ cargo-binstall -y mise sheldon starship uv
 
 uv tool install pre-commit
 
-ZSH_PATH=$(which zsh)
-if [ "$SHELL" != "$ZSH_PATH" ]; then
-    sudo chsh -s "$ZSH_PATH" "$USER"
-fi
-
 mkdir -p "$HOME/.ssh"
 if [ ! -f "$HOME/.ssh/id_ed25519" ]; then
     ssh-keygen -t ed25519 -N "" -f "$HOME/.ssh/id_ed25519"
 fi
-
-{{ end -}}
-
