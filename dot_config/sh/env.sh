@@ -16,4 +16,4 @@ export PATH="${PATH}":"${CARGO_HOME}"/bin
 export DOCKER_CONFIG="$XDG_CONFIG_HOME"/docker
 
 # Local overrides (not managed by chezmoi; put secrets and machine-specific env here)
-[ -f "${HOME}/.config/sh/local.sh" ] && . "${HOME}/.config/sh/local.sh"
+[ -f "${HOME}/.config/sh/env.local.sh" ] && . "${HOME}/.config/sh/env.local.sh"
