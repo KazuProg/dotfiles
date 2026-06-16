@@ -3,7 +3,7 @@
 add_newline = true
 
 format = """
-$hostname$directory$git_branch$git_status$python$nodejs
+$hostname$directory$git_branch$git_status${custom.repo_inner_path}$python$nodejs
 $character"""
 
 [character]
@@ -17,9 +17,23 @@ disabled = true
 style = "bold cyan"
 truncate_to_repo = false
 truncation_length = 100
+repo_root_style = "bold cyan"
+repo_root_format = "[$before_root_path$repo_root]($repo_root_style) "
+
+[custom.repo_inner_path]
+command = 'p=$(git rev-parse --show-prefix); printf "/%s" "${p%/}"'
+when = "git rev-parse --is-inside-work-tree"
+format = "\n[$output]($style) "
+style = "bold cyan"
 
 [git_branch]
 format = "[$symbol$branch]($style) "
+
+[python]
+symbol = "Python "
+
+[nodejs]
+symbol = "Node "
 
 [hostname]
 format = "[$ssh_symbol$hostname]($style):"
