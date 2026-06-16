@@ -5,3 +5,5 @@
 	email = 91452566+KazuProg@users.noreply.github.com
 [include]
 	path = config.local
+[worktree]
+	useRelativePaths = true
