@@ -48,7 +48,14 @@ fi
 
 cargo-binstall -y mise sheldon starship uv
 
-uv tool install pre-commit
+if ! command -v go &> /dev/null; then
+    mise use -g go@latest
+    eval "$(mise activate bash)"
+fi
+
+export GOBIN="${HOME}/.local/bin"
+go install mvdan.cc/sh/v3/cmd/shfmt@latest
+go install github.com/evilmartians/lefthook/v2@latest
 
 mkdir -p "$HOME/.ssh"
 if [ ! -f "$HOME/.ssh/id_ed25519" ]; then
