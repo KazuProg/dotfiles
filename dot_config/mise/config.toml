@@ -2,4 +2,9 @@
 idiomatic_version_file_enable_tools = ["python"]
 
 [tools]
+gh = "latest"
 go = "latest"
+jq = "latest"
+shellcheck = "latest"
+terraform = "latest"
+tmux = "latest"

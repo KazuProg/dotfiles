@@ -1,9 +1,4 @@
-brew "gh"
-brew "jq"
 brew "ncdu"
-brew "shellcheck"
-brew "terraform"
-brew "tmux"
 brew "tree"
 
 cask "font-hack-nerd-font"
