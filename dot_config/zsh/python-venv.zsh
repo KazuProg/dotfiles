@@ -1,5 +1,3 @@
-#!/usr/bin/env zsh
-
 python_venv_chpwd() {
   local dir="$PWD" venv_dir=""
 

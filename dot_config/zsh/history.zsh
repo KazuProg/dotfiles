@@ -1,5 +1,3 @@
-#!/usr/bin/env zsh
-
 if [[ ! -d "${XDG_STATE_HOME}"/zsh ]]; then
     mkdir -m 700 "${XDG_STATE_HOME}"/zsh
 fi
