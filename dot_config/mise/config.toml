@@ -4,6 +4,8 @@ idiomatic_version_file_enable_tools = ["python"]
 [tools]
 gh = "latest"
 go = "latest"
+herdr = "latest"
+hunk = "latest"
 jq = "latest"
 node = "lts"
 python = "latest"
