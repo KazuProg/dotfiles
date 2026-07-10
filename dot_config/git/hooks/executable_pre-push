@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Block non-fast-forward pushes and prompt to use `git fpush` instead.
+# Bypass with: SKIP_FPUSH_HOOK=1 git push ...
+#
+# Git passes on stdin, one line per ref being pushed:
+#   <local_ref> <local_sha> <remote_ref> <remote_sha>
+
+set -euo pipefail
+
+if [ "${SKIP_FPUSH_HOOK:-0}" = "1" ]; then
+  exit 0
+fi
+
+ZERO=0000000000000000000000000000000000000000
+NON_FF_FOUND=0
+NON_FF_REFS=()
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # Deletion push: local_sha == zero. Allow (harmless here).
+  if [ "$local_sha" = "$ZERO" ]; then
+    continue
+  fi
+  # New branch on remote: remote_sha == zero. Not a force-push.
+  if [ "$remote_sha" = "$ZERO" ]; then
+    continue
+  fi
+  # Non-fast-forward: remote_sha is NOT an ancestor of local_sha.
+  if ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+    NON_FF_FOUND=1
+    NON_FF_REFS+=("$local_ref -> $remote_ref")
+  fi
+done
+
+if [ "$NON_FF_FOUND" -eq 1 ]; then
+  {
+    echo
+    echo "error: non-fast-forward push detected on:"
+    for r in "${NON_FF_REFS[@]}"; do
+      echo "  - $r"
+    done
+    echo
+    echo "  use \`git fpush\` instead (PR に差分コメントを自動投稿します)."
+    echo "  bypass: SKIP_FPUSH_HOOK=1 git push ..."
+    echo
+  } >&2
+  exit 1
+fi
+
+exit 0

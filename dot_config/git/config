@@ -1,5 +1,6 @@
 [core]
 	excludesfile = ~/.config/git/ignore
+	hooksPath = ~/.config/git/hooks
 [user]
 	name = KazuProg
 	email = 91452566+KazuProg@users.noreply.github.com
@@ -7,3 +8,5 @@
 	path = config.local
 [worktree]
 	useRelativePaths = true
+[alias]
+	fpush = !~/.config/git/git-force-push-with-diff
