@@ -89,18 +89,25 @@ else
   HEADER="force-push しました (差分あり +${ADDED:-0} -${REMOVED:-0})"
 fi
 
+# Markdown コードフェンスは、本文中の最長バッククォート連続より長くしないと
+# 差分内にバッククォートが含まれる場合にフェンスが途中で閉じてしまう。
+MAX_BACKTICK_RUN=$(printf '%s\n%s' "$CMD" "$DIFF_OUTPUT" | grep -oE '`+' | wc -L)
+FENCE_LEN=$((MAX_BACKTICK_RUN + 1))
+[ "$FENCE_LEN" -lt 3 ] && FENCE_LEN=3
+FENCE=$(printf '%*s' "$FENCE_LEN" '' | tr ' ' '`')
+
 COMMENT_BODY=$(cat <<EOF
 ${HEADER}
 
 <details><summary>差分確認</summary>
 
-\`\`\`bash
+${FENCE}bash
 ${CMD}
-\`\`\`
+${FENCE}
 
-\`\`\`diff
+${FENCE}diff
 ${DIFF_OUTPUT}
-\`\`\`
+${FENCE}
 
 </details>
 EOF
