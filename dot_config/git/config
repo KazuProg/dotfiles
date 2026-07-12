@@ -9,4 +9,4 @@
 [worktree]
 	useRelativePaths = true
 [alias]
-	fpush = !~/.config/git/git-force-push-with-diff
+	fpush = !~/.config/git/fpush
