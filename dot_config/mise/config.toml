@@ -21,4 +21,8 @@ if echo "$MISE_INSTALLED_TOOLS" | jq -e '.[] | select(.name == "hunk")' > /dev/n
   mkdir -p ~/.claude/skills
   ln -sfn "$src" ~/.claude/skills/hunk-review
 fi
+if echo "$MISE_INSTALLED_TOOLS" | jq -e '.[] | select(.name == "herdr")' > /dev/null; then
+  mkdir -p ~/.config/zsh/completions
+  herdr completion zsh > ~/.config/zsh/completions/_herdr
+fi
 '''

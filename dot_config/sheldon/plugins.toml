@@ -17,6 +17,10 @@ use = ["{*}.zsh"]
 [plugins.zsh-completions]
 github = "zsh-users/zsh-completions"
 
+[plugins.local-completions]
+local = "~/.config/zsh/completions"
+apply = ["fpath"]
+
 [plugins.zsh-syntax-highlighting]
 github = "zsh-users/zsh-syntax-highlighting"
 
