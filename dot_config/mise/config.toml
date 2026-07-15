@@ -13,3 +13,12 @@ shellcheck = "latest"
 terraform = "latest"
 tmux = "latest"
 yq = "latest"
+
+[hooks]
+postinstall = '''
+if echo "$MISE_INSTALLED_TOOLS" | jq -e '.[] | select(.name == "hunk")' > /dev/null; then
+  src=$(dirname "$(hunk skill path)")
+  mkdir -p ~/.claude/skills
+  ln -sfn "$src" ~/.claude/skills/hunk-review
+fi
+'''
