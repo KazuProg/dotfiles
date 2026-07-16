@@ -1,4 +1,5 @@
 brew "ncdu"
 brew "tree"
+brew "watch"
 
 cask "font-hack-nerd-font"
