@@ -32,30 +32,46 @@ command -v gh  >/dev/null || { echo "gh not found" >&2; exit 1; }
 command -v git >/dev/null || { echo "git not found" >&2; exit 1; }
 command -v jq  >/dev/null || { echo "jq not found" >&2; exit 1; }
 
-PR_JSON=$(gh pr view --json baseRefName,headRefName,number,title,isDraft)
-BASE_REF=$(printf '%s' "$PR_JSON" | jq -r '.baseRefName')
-HEAD_REF=$(printf '%s' "$PR_JSON" | jq -r '.headRefName')
-PR_NUM=$(printf '%s'  "$PR_JSON" | jq -r '.number')
-PR_TITLE=$(printf '%s' "$PR_JSON" | jq -r '.title')
-PR_IS_DRAFT=$(printf '%s' "$PR_JSON" | jq -r '.isDraft')
+PR_EXISTS=1
+PR_JSON=$(gh pr view --json baseRefName,headRefName,number,title,isDraft 2>/dev/null) || PR_EXISTS=0
 
-if [ "$PR_IS_DRAFT" = "true" ] && [ "$DO_COMMENT" -eq 1 ]; then
-  echo "PR #${PR_NUM} is Draft; skipping comment."
+if [ "$PR_EXISTS" -eq 1 ]; then
+  BASE_REF=$(printf '%s' "$PR_JSON" | jq -r '.baseRefName')
+  HEAD_REF=$(printf '%s' "$PR_JSON" | jq -r '.headRefName')
+  PR_NUM=$(printf '%s'  "$PR_JSON" | jq -r '.number')
+  PR_TITLE=$(printf '%s' "$PR_JSON" | jq -r '.title')
+  PR_IS_DRAFT=$(printf '%s' "$PR_JSON" | jq -r '.isDraft')
+
+  if [ "$PR_IS_DRAFT" = "true" ] && [ "$DO_COMMENT" -eq 1 ]; then
+    echo "PR #${PR_NUM} is Draft; skipping comment."
+    DO_COMMENT=0
+  fi
+
+  valid_ref "$BASE_REF" || { echo "invalid baseRefName: $BASE_REF" >&2; exit 1; }
+  valid_ref "$HEAD_REF" || { echo "invalid headRefName: $HEAD_REF" >&2; exit 1; }
+
+  CURRENT=$(git rev-parse --abbrev-ref HEAD)
+  if [ "$CURRENT" != "$HEAD_REF" ]; then
+    echo "current branch ($CURRENT) != PR head ($HEAD_REF)" >&2
+    exit 1
+  fi
+else
+  echo "No PR found for current branch; skipping comment."
   DO_COMMENT=0
-fi
-
-valid_ref "$BASE_REF" || { echo "invalid baseRefName: $BASE_REF" >&2; exit 1; }
-valid_ref "$HEAD_REF" || { echo "invalid headRefName: $HEAD_REF" >&2; exit 1; }
-
-CURRENT=$(git rev-parse --abbrev-ref HEAD)
-if [ "$CURRENT" != "$HEAD_REF" ]; then
-  echo "current branch ($CURRENT) != PR head ($HEAD_REF)" >&2
-  exit 1
+  HEAD_REF=$(git rev-parse --abbrev-ref HEAD)
+  valid_ref "$HEAD_REF" || { echo "invalid branch name: $HEAD_REF" >&2; exit 1; }
+  if [ "$HEAD_REF" = "HEAD" ]; then
+    echo "detached HEAD; cannot force-push" >&2
+    exit 1
+  fi
 fi
 
 git fetch origin --quiet
 
-OLD_TIP=$(git rev-parse "origin/${HEAD_REF}")
+if ! OLD_TIP=$(git rev-parse --verify --quiet "origin/${HEAD_REF}"); then
+  echo "origin/${HEAD_REF} not found; nothing to force-push against. Use 'git push -u origin ${HEAD_REF}' for the initial push." >&2
+  exit 1
+fi
 NEW_TIP=$(git rev-parse HEAD)
 
 if [ "$OLD_TIP" = "$NEW_TIP" ]; then
@@ -68,7 +84,11 @@ if git merge-base --is-ancestor "$OLD_TIP" "$NEW_TIP"; then
   exit 0
 fi
 
-echo "PR      : #${PR_NUM} ${PR_TITLE}"
+if [ "$PR_EXISTS" -eq 1 ]; then
+  echo "PR      : #${PR_NUM} ${PR_TITLE}"
+else
+  echo "PR      : (none)"
+fi
 echo "old tip : ${OLD_TIP}  (origin/${HEAD_REF})"
 echo "new tip : ${NEW_TIP}  (HEAD)"
 echo
