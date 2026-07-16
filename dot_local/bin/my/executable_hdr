@@ -1,0 +1,100 @@
+#!/bin/bash
+
+# Herdr session command: CWD に応じてセッションを自動作成/attach
+
+set -euo pipefail
+
+command -v herdr >/dev/null || {
+  echo "hdr: herdr command not found in PATH" >&2
+  exit 1
+}
+
+# 別セッション内から起動された場合の socket 誤ルーティングを防ぐため env を剥がす。
+# nested 判定用に HERDR_ENV の有無だけ HDR_NESTED に退避しておく。
+HDR_NESTED="${HERDR_ENV:-}"
+unset HERDR_ENV HERDR_PANE_ID HERDR_SOCKET_PATH HERDR_TAB_ID HERDR_WORKSPACE_ID
+
+# PC 再起動などで server プロセスが消えても socket ファイルは残るため、
+# 存在チェックだけでは stale socket を掴んで Connection refused になる。
+# 実際に接続できるかを確認し、失敗したら削除して起動フローに任せる。
+remove_if_stale_socket() {
+  local sock="$1"
+  [ -S "$sock" ] || return 0
+  if ! nc -U -z "$sock" 2>/dev/null; then
+    rm -f "$sock"
+  fi
+}
+
+remove_if_stale_socket "$HOME/.config/herdr/herdr.sock"
+remove_if_stale_socket "$HOME/.config/herdr/herdr-client.sock"
+
+if [ "$PWD" = "$HOME" ]; then
+  command -v jq >/dev/null || {
+    echo "hdr: jq command not found in PATH" >&2
+    exit 1
+  }
+
+  SOCK="$HOME/.config/herdr/herdr.sock"
+
+  # ホームで開く workspace セット: "<cwd>|<label>"
+  # 環境変数 HDR_HOME_ENTRIES で上書き可能 (改行区切り、フォーマットは同じ)
+  ENTRIES=()
+  if [ -n "${HDR_HOME_ENTRIES:-}" ]; then
+    while IFS= read -r line; do
+      [ -n "$line" ] && ENTRIES+=("$line")
+    done <<< "$HDR_HOME_ENTRIES"
+  else
+    ENTRIES=(
+      "$HOME|home"
+      "$HOME/.local/share/chezmoi|chezmoi"
+    )
+  fi
+
+  if [ ! -S "$SOCK" ]; then
+    nohup herdr server >/dev/null 2>&1 &
+
+    for _ in $(seq 1 50); do
+      [ -S "$SOCK" ] && break
+      sleep 0.1
+    done
+
+    if [ ! -S "$SOCK" ]; then
+      echo "hdr: failed to start herdr default server" >&2
+      exit 1
+    fi
+  fi
+
+  existing=$(herdr workspace list 2>/dev/null || echo '{}')
+  for entry in "${ENTRIES[@]}"; do
+    cwd="${entry%|*}"
+    label="${entry##*|}"
+    if printf '%s' "$existing" | jq -e --arg l "$label" 'any(.result.workspaces[]?; .label == $l)' >/dev/null 2>&1; then
+      continue
+    fi
+    herdr workspace create \
+      --cwd "$cwd" \
+      --label "$label" \
+      --no-focus >/dev/null
+  done
+
+  # 既に herdr セッション内から実行された場合は nested attach を避けて終了
+  [ -n "$HDR_NESTED" ] && exit 0
+
+  exec herdr
+fi
+
+if [ -n "$HDR_NESTED" ]; then
+  echo "hdr: already inside a herdr session; nested attach skipped" >&2
+  exit 0
+fi
+
+if git rev-parse --show-toplevel > /dev/null 2>&1; then
+  PROJECT_ROOT=$(git rev-parse --show-toplevel)
+else
+  PROJECT_ROOT=$(pwd)
+fi
+
+BASE_NAME=$(basename -- "$PROJECT_ROOT")
+SESSION_NAME=$(printf '%s' "$BASE_NAME" | tr -cs 'A-Za-z0-9._-' '-')
+
+exec herdr --session "$SESSION_NAME"
