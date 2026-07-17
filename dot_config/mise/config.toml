@@ -15,14 +15,7 @@ tmux = "latest"
 yq = "latest"
 
 [hooks]
-postinstall = '''
-if echo "$MISE_INSTALLED_TOOLS" | jq -e '.[] | select(.name == "hunk")' > /dev/null; then
-  src=$(dirname "$(hunk skill path)")
-  mkdir -p ~/.claude/skills
-  ln -sfn "$src" ~/.claude/skills/hunk-review
-fi
-if echo "$MISE_INSTALLED_TOOLS" | jq -e '.[] | select(.name == "herdr")' > /dev/null; then
-  mkdir -p ~/.config/zsh/completions
-  herdr completion zsh > ~/.config/zsh/completions/_herdr
-fi
-'''
+# NOTE: mise の postinstall hook は `mise install` でのみ発火し、`mise upgrade` では発火しない
+# (jdx/mise src/cli/upgrade.rs に hook 呼び出しなし)。
+# `mise upgrade` 対応は ~/.config/zsh/mise-refresh.zsh の shell 関数側で行う。
+postinstall = '"${XDG_CONFIG_HOME:-$HOME/.config}/mise/refresh-tool-links.sh"'
