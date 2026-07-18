@@ -8,6 +8,10 @@ command -v herdr >/dev/null || {
   echo "hdr: herdr command not found in PATH" >&2
   exit 1
 }
+command -v jq >/dev/null || {
+  echo "hdr: jq command not found in PATH" >&2
+  exit 1
+}
 
 # 別セッション内から起動された場合の socket 誤ルーティングを防ぐため env を剥がす。
 # nested 判定用に HERDR_ENV の有無だけ HDR_NESTED に退避しておく。
@@ -16,24 +20,27 @@ unset HERDR_ENV HERDR_PANE_ID HERDR_SOCKET_PATH HERDR_TAB_ID HERDR_WORKSPACE_ID
 
 # PC 再起動などで server プロセスが消えても socket ファイルは残るため、
 # 存在チェックだけでは stale socket を掴んで Connection refused になる。
-# 実際に接続できるかを確認し、失敗したら削除して起動フローに任せる。
+# `herdr status <kind> --json` の .status が "running" 以外の場合のみ socket を削除する。
+# 取得失敗時 (herdr 側の一時的な不調等) は削除しない (誤って健全な socket を消さないため)。
+# nc -U -z は herdr プロトコルと非互換で false-positive (running でも fail) を起こすため
+# 使わない。プロセス kill も、同じ socket path を握る PID 群には健全な listener と
+# 孤立 FD 保持者が混在し得るため行わない (誤って健全 server を殺すリスクを回避)。
 remove_if_stale_socket() {
   local sock="$1"
+  local kind="$2"
+  local json status
   [ -S "$sock" ] || return 0
-  if ! nc -U -z "$sock" 2>/dev/null; then
-    rm -f "$sock"
-  fi
+  json="$(herdr status "$kind" --json 2>/dev/null)" || return 0
+  status="$(printf '%s' "$json" | jq -r '.status // empty' 2>/dev/null)" || return 0
+  # `&&` 複合コマンド内の非ゼロ終了は set -e に引っかからず fall-through する (POSIX 例外)
+  [ "$status" = "running" ] && return 0
+  rm -f "$sock"
 }
 
-remove_if_stale_socket "$HOME/.config/herdr/herdr.sock"
-remove_if_stale_socket "$HOME/.config/herdr/herdr-client.sock"
+remove_if_stale_socket "$HOME/.config/herdr/herdr.sock" server
+remove_if_stale_socket "$HOME/.config/herdr/herdr-client.sock" client
 
 if [ "$PWD" = "$HOME" ]; then
-  command -v jq >/dev/null || {
-    echo "hdr: jq command not found in PATH" >&2
-    exit 1
-  }
-
   SOCK="$HOME/.config/herdr/herdr.sock"
 
   # ホームで開く workspace セット: "<cwd>|<label>"
