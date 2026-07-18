@@ -1,0 +1,221 @@
+#!/bin/bash
+
+# Git Worktree command
+
+# デフォルト設定 (設定ファイルで上書き可能)
+REMOTE="origin"
+WORKTREE_DIR=".w"
+POST_CREATE_CMD=""
+
+# 設定ファイル: ~/.config/gw/config (bash として source される)
+GW_CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/gw/config"
+if [ -f "$GW_CONFIG_FILE" ]; then
+  # shellcheck disable=SC1090
+  . "$GW_CONFIG_FILE"
+fi
+
+# リポジトリのメインディレクトリ
+MAIN_REPO_ROOT=$(realpath "$(git rev-parse --git-common-dir)/..")
+
+# 引数がなければ、worktreeの一覧を表示
+if [ "$#" -eq 0 ]; then
+  echo "Usage: gw [-f <file>] [-y] [-n] <branch-name> [<start-point>]"
+  echo "       gw [-f <file>] [-y] [-n] --detach <commit>"
+  echo
+  echo "Options:"
+  echo "  -f <file>        Open <file> in the worktree after creation"
+  echo "  --detach         Create a detached HEAD worktree at the given commit"
+  echo "  -y, --yes        Auto-confirm branch creation prompt"
+  echo "  -n, --no-editor  Skip launching the editor after worktree creation"
+  echo
+
+  ROOT_LINK=""
+  ROOT_DISPLAY="$MAIN_REPO_ROOT"
+  worktree_lines=()
+  while IFS= read -r line; do
+    wt_path="${line%% *}"
+    rest="${line#"$wt_path"}"
+    if ! wt_real=$(realpath "$wt_path" 2> /dev/null); then
+      worktree_lines+=("$line")
+      continue
+    fi
+    if [[ "$wt_real" != "$MAIN_REPO_ROOT" && "$wt_real" != "$MAIN_REPO_ROOT"/* ]]; then
+      worktree_lines+=("$line")
+      continue
+    fi
+
+    rel="${wt_real#$MAIN_REPO_ROOT}"
+    if [ -z "$rel" ]; then
+      worktree_lines+=("/${rest}")
+      candidate="$wt_path"
+    else
+      worktree_lines+=("${rel}${rest}")
+      candidate="${wt_path%$rel}"
+      candidate="${candidate%/}"
+    fi
+    if [ -z "$ROOT_LINK" ] && [ "$candidate" != "$MAIN_REPO_ROOT" ]; then
+      ROOT_LINK="$candidate"
+      ROOT_DISPLAY="$ROOT_LINK -> $MAIN_REPO_ROOT"
+    fi
+  done < <(git worktree list)
+
+  echo "Worktrees: (Root: $ROOT_DISPLAY)"
+  printf '%s\n' "${worktree_lines[@]}" | column -t
+  exit 0
+fi
+
+# 引数を変数に格納
+TARGET_FILE=""
+DETACH=""
+ASSUME_YES=""
+NO_EDITOR=""
+POSITIONAL=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -f)
+      TARGET_FILE=$2
+      shift 2
+      ;;
+    --detach)
+      DETACH=1
+      shift
+      ;;
+    -y | --yes)
+      ASSUME_YES=1
+      shift
+      ;;
+    -n | --no-editor)
+      NO_EDITOR=1
+      shift
+      ;;
+    *)
+      POSITIONAL+=("$1")
+      shift
+      ;;
+  esac
+done
+set -- "${POSITIONAL[@]}"
+
+BRANCH_NAME=$1
+START_POINT=$2
+
+# -n 時はスクリプト用途モード: 末尾の WORKTREE_PATH 以外の stdout を stderr に寄せる
+if [ -n "$NO_EDITOR" ]; then
+  exec 3>&1
+  exec 1>&2
+fi
+
+if [ -n "$DETACH" ]; then
+  if [ -z "$BRANCH_NAME" ]; then
+    echo "Error: --detach にはコミット指定が必要です" >&2
+    exit 1
+  fi
+  if ! COMMIT_SHA=$(git rev-parse --verify "$BRANCH_NAME^{commit}" 2> /dev/null); then
+    echo "Error: コミットを解決できませんでした: $BRANCH_NAME" >&2
+    exit 1
+  fi
+elif [ -z "$(git branch --list "$BRANCH_NAME")" ]; then
+  REMOTE_EXISTS=$(git ls-remote --heads "$REMOTE" "$BRANCH_NAME" 2> /dev/null)
+  if [ -z "$REMOTE_EXISTS" ]; then
+    if [ -n "$ASSUME_YES" ]; then
+      echo "Create branch: $BRANCH_NAME (auto-confirmed)"
+    else
+      read -p "Create branch: $BRANCH_NAME? (y/n): " -n 1 -r confirm
+      echo
+      if [ "$confirm" != "y" ]; then
+        echo "Aborted"
+        exit 1
+      fi
+    fi
+
+    if [ -z "$START_POINT" ]; then
+      git branch "$BRANCH_NAME"
+    else
+      git branch "$BRANCH_NAME" "$START_POINT"
+    fi
+  else
+    git fetch "$REMOTE" "$BRANCH_NAME" > /dev/null 2>&1
+    git branch -t "$BRANCH_NAME" "$REMOTE/$BRANCH_NAME"
+  fi
+fi
+
+get_worktree_path() {
+  local branch=$1
+  git worktree list --porcelain | grep -B 2 "branch refs/heads/$branch$" | grep "^worktree" | awk '{print $2}'
+}
+
+ensure_excluded() {
+  local pattern=$1
+  local exclude_file
+  exclude_file=$(git rev-parse --git-path info/exclude)
+  if [ -f "$exclude_file" ] && grep -Fxq "$pattern" "$exclude_file"; then
+    return 0
+  fi
+  mkdir -p "$(dirname "$exclude_file")"
+  if [ -f "$exclude_file" ] && [ -s "$exclude_file" ] && [ -n "$(tail -c 1 "$exclude_file")" ]; then
+    printf '\n' >> "$exclude_file"
+  fi
+  echo "$pattern" >> "$exclude_file"
+}
+
+# メインリポジトリ配下に用意する共有ディレクトリを作り、gitignore に登録する
+setup_shared_directories() {
+  mkdir -p \
+    "$MAIN_REPO_ROOT/.share" \
+    "$MAIN_REPO_ROOT/.claude" \
+    "$MAIN_REPO_ROOT/$WORKTREE_DIR"
+  ensure_excluded "/.share"
+  ensure_excluded "/.claude"
+  ensure_excluded "/$WORKTREE_DIR/"
+}
+
+setup_shared_directories
+
+if [ -n "$DETACH" ]; then
+  WORKTREE_PATH="$MAIN_REPO_ROOT/$WORKTREE_DIR/${COMMIT_SHA:0:12}"
+
+  if [ ! -d "$WORKTREE_PATH" ]; then
+    if ! git worktree add --detach "$WORKTREE_PATH" "$COMMIT_SHA"; then
+      echo "Error: worktree の作成に失敗しました" >&2
+      exit 1
+    fi
+  fi
+else
+  # Worktreeが存在していない場合は作成
+  if [ -z "$(get_worktree_path "$BRANCH_NAME")" ]; then
+    BRANCH_DIR_NAME=${BRANCH_NAME//\//__}
+    git worktree add "$MAIN_REPO_ROOT/$WORKTREE_DIR/$BRANCH_DIR_NAME" "$BRANCH_NAME" > /dev/null 2>&1
+  fi
+
+  WORKTREE_PATH=$(get_worktree_path "$BRANCH_NAME")
+fi
+
+# Worktreeが存在していない場合はエラーとする
+if [ -z "$WORKTREE_PATH" ]; then
+  echo "Error: Worktree not found" >&2
+  exit 1
+fi
+
+# .claudeを共有する
+if [ ! -e "$WORKTREE_PATH/.claude" ]; then
+  ln -s "$MAIN_REPO_ROOT/.claude" "$WORKTREE_PATH/.claude"
+fi
+
+# .shareを共有する
+if [ ! -e "$WORKTREE_PATH/.share" ]; then
+  ln -s "$MAIN_REPO_ROOT/.share" "$WORKTREE_PATH/.share"
+fi
+
+if [ -n "$NO_EDITOR" ]; then
+  echo "$WORKTREE_PATH" >&3
+  exit 0
+fi
+if [ -n "$POST_CREATE_CMD" ]; then
+  GW_WORKTREE_PATH="$WORKTREE_PATH" \
+    GW_MAIN_REPO_PATH="$MAIN_REPO_ROOT" \
+    GW_BRANCH_NAME="$BRANCH_NAME" \
+    GW_TARGET_FILE="${TARGET_FILE:+$WORKTREE_PATH/$TARGET_FILE}" \
+    "$POST_CREATE_CMD"
+else
+  echo "$WORKTREE_PATH"
+fi

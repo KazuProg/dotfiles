@@ -1,0 +1,3 @@
+# gw config file (sourced as bash)
+
+POST_CREATE_CMD="${XDG_CONFIG_HOME:-$HOME/.config}/gw/post-create.sh"
