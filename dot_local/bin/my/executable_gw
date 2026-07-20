@@ -175,6 +175,9 @@ setup_shared_directories() {
   ensure_excluded "/.share"
   ensure_excluded "/.claude"
   ensure_excluded "/$WORKTREE_DIR/"
+  if [ -e "$MAIN_REPO_ROOT/CLAUDE.md" ]; then
+    ensure_excluded "/CLAUDE.md"
+  fi
 }
 
 setup_shared_directories
@@ -212,6 +215,11 @@ fi
 # .shareを共有する
 if [ ! -e "$WORKTREE_PATH/.share" ]; then
   ln -s "$MAIN_REPO_ROOT/.share" "$WORKTREE_PATH/.share"
+fi
+
+# CLAUDE.mdを共有する (メインリポジトリに存在する場合のみ)
+if [ -e "$MAIN_REPO_ROOT/CLAUDE.md" ] && [ ! -e "$WORKTREE_PATH/CLAUDE.md" ]; then
+  ln -s "$MAIN_REPO_ROOT/CLAUDE.md" "$WORKTREE_PATH/CLAUDE.md"
 fi
 
 run_post_create_cmd() {
