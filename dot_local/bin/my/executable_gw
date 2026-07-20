@@ -27,6 +27,9 @@ if [ "$#" -eq 0 ]; then
   echo "  --detach         Create a detached HEAD worktree at the given commit"
   echo "  -y, --yes        Auto-confirm branch creation prompt"
   echo "  -n, --no-editor  Skip launching the editor after worktree creation"
+  echo "  -p, --post-script-args <string>"
+  echo "                   Space-separated tokens passed to POST_CREATE_CMD"
+  echo "                   as GW_POST_SCRIPT_ARGS (interpretation is up to the script)"
   echo
 
   ROOT_LINK=""
@@ -69,6 +72,7 @@ TARGET_FILE=""
 DETACH=""
 ASSUME_YES=""
 NO_EDITOR=""
+POST_SCRIPT_ARGS=""
 POSITIONAL=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -87,6 +91,10 @@ while [ $# -gt 0 ]; do
     -n | --no-editor)
       NO_EDITOR=1
       shift
+      ;;
+    -p | --post-script-args)
+      POST_SCRIPT_ARGS=$2
+      shift 2
       ;;
     *)
       POSITIONAL+=("$1")
@@ -206,16 +214,36 @@ if [ ! -e "$WORKTREE_PATH/.share" ]; then
   ln -s "$MAIN_REPO_ROOT/.share" "$WORKTREE_PATH/.share"
 fi
 
-if [ -n "$NO_EDITOR" ]; then
-  echo "$WORKTREE_PATH" >&3
-  exit 0
-fi
-if [ -n "$POST_CREATE_CMD" ]; then
+run_post_create_cmd() {
   GW_WORKTREE_PATH="$WORKTREE_PATH" \
     GW_MAIN_REPO_PATH="$MAIN_REPO_ROOT" \
     GW_BRANCH_NAME="$BRANCH_NAME" \
     GW_TARGET_FILE="${TARGET_FILE:+$WORKTREE_PATH/$TARGET_FILE}" \
+    GW_POST_SCRIPT_ARGS="$POST_SCRIPT_ARGS" \
     "$POST_CREATE_CMD"
+}
+
+if [ -n "$NO_EDITOR" ]; then
+  if [ -n "$POST_CREATE_CMD" ]; then
+    if ! POST_CREATE_OUTPUT=$(run_post_create_cmd); then
+      echo "Error: POST_CREATE_CMD failed: $POST_CREATE_CMD" >&2
+      exit 1
+    fi
+    echo "$WORKTREE_PATH" >&3
+    if [ -n "$POST_CREATE_OUTPUT" ]; then
+      echo "$POST_CREATE_OUTPUT" >&3
+    fi
+  else
+    echo "$WORKTREE_PATH" >&3
+  fi
+  exit 0
+fi
+
+if [ -n "$POST_CREATE_CMD" ]; then
+  if ! run_post_create_cmd; then
+    echo "Error: POST_CREATE_CMD failed: $POST_CREATE_CMD" >&2
+    exit 1
+  fi
 else
   echo "$WORKTREE_PATH"
 fi
