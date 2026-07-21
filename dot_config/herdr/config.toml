@@ -1,0 +1,9 @@
+onboarding = false
+[ui]
+agent_panel_sort = "priority"
+
+[ui.sidebar.spaces]
+row_gap = 1
+
+[ui.sidebar.agents]
+row_gap = 1
