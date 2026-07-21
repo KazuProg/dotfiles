@@ -32,4 +32,4 @@ github = "romkatv/zsh-defer"
 apply = ["source"]
 
 [plugins.compinit]
-inline = "autoload -Uz compinit && zsh-defer compinit"
+inline = "autoload -Uz compinit && compinit"
