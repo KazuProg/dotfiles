@@ -42,9 +42,8 @@ if [ "$PR_EXISTS" -eq 1 ]; then
   PR_TITLE=$(printf '%s' "$PR_JSON" | jq -r '.title')
   PR_IS_DRAFT=$(printf '%s' "$PR_JSON" | jq -r '.isDraft')
 
-  if [ "$PR_IS_DRAFT" = "true" ] && [ "$DO_COMMENT" -eq 1 ]; then
+  if [ "$PR_IS_DRAFT" = "true" ]; then
     echo "PR #${PR_NUM} is Draft; skipping comment."
-    DO_COMMENT=0
   fi
 
   valid_ref "$BASE_REF" || { echo "invalid baseRefName: $BASE_REF" >&2; exit 1; }
@@ -57,7 +56,6 @@ if [ "$PR_EXISTS" -eq 1 ]; then
   fi
 else
   echo "No PR found for current branch; skipping comment."
-  DO_COMMENT=0
   HEAD_REF=$(git rev-parse --abbrev-ref HEAD)
   valid_ref "$HEAD_REF" || { echo "invalid branch name: $HEAD_REF" >&2; exit 1; }
   if [ "$HEAD_REF" = "HEAD" ]; then
@@ -103,6 +101,10 @@ if [ "$DO_PUSH" -eq 1 ]; then
 else
   echo "--no-push: skipping git push. Run manually:"
   echo "  git push --force-with-lease --force-if-includes origin ${HEAD_REF}"
+fi
+
+if [ "$PR_EXISTS" -eq 0 ] || [ "$PR_IS_DRAFT" = "true" ]; then
+  exit 0
 fi
 
 CMD="git fetch origin && git diff ${OLD_TIP} ${NEW_TIP}"
