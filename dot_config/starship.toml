@@ -7,8 +7,8 @@ $hostname$directory$git_branch$git_status${custom.repo_inner_path}$python$nodejs
 $character"""
 
 [character]
-success_symbol = "[>](bold green)"
-error_symbol = "[>](bold red)"
+success_symbol = "[:\\)](bold green)"
+error_symbol = "[:\\(](bold red)"
 
 [container]
 disabled = true
