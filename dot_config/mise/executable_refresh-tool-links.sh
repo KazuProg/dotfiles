@@ -18,4 +18,6 @@ if command -v herdr > /dev/null 2>&1; then
     rm -f "$tmp"
     exit 1
   fi
+
+  herdr integration install claude
 fi
