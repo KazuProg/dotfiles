@@ -147,9 +147,17 @@ elif [ -z "$(git branch --list "$BRANCH_NAME")" ]; then
   fi
 fi
 
+# worktree 登録は実体が消えても prune されるまで残る。存在するディレクトリだけを返す
 get_worktree_path() {
-  local branch=$1
-  git worktree list --porcelain | grep -B 2 "branch refs/heads/$branch$" | grep "^worktree" | awk '{print $2}'
+  local branch=$1 path
+  while IFS= read -r path; do
+    [ -d "$path" ] || continue
+    printf '%s\n' "$path"
+    return 0
+  done < <(git worktree list --porcelain \
+    | grep -B 2 -xF -- "branch refs/heads/$branch" \
+    | sed -n 's/^worktree //p')
+  return 1
 }
 
 ensure_excluded() {
@@ -184,9 +192,12 @@ setup_shared_directories
 
 if [ -n "$DETACH" ]; then
   WORKTREE_PATH="$MAIN_REPO_ROOT/$WORKTREE_DIR/${COMMIT_SHA:0:12}"
+  # detach では BRANCH_NAME に commit-ish が入っているため、POST_CREATE_CMD へは
+  # GW_BRANCH_NAME を空で渡す
+  BRANCH_NAME=""
 
   if [ ! -d "$WORKTREE_PATH" ]; then
-    if ! git worktree add --detach "$WORKTREE_PATH" "$COMMIT_SHA"; then
+    if ! git worktree add --detach -- "$WORKTREE_PATH" "$COMMIT_SHA"; then
       echo "Error: worktree の作成に失敗しました" >&2
       exit 1
     fi
@@ -195,7 +206,11 @@ else
   # Worktreeが存在していない場合は作成
   if [ -z "$(get_worktree_path "$BRANCH_NAME")" ]; then
     BRANCH_DIR_NAME=${BRANCH_NAME//\//__}
-    git worktree add "$MAIN_REPO_ROOT/$WORKTREE_DIR/$BRANCH_DIR_NAME" "$BRANCH_NAME" > /dev/null 2>&1
+    # このパスで git が出す fatal は `already used by worktree at ...` で prune を案内しないため添える
+    if ! git worktree add -- "$MAIN_REPO_ROOT/$WORKTREE_DIR/$BRANCH_DIR_NAME" "$BRANCH_NAME" > /dev/null; then
+      echo "Error: worktree の作成に失敗しました (実体の消えた登録が残っている場合は git worktree prune を実行)" >&2
+      exit 1
+    fi
   fi
 
   WORKTREE_PATH=$(get_worktree_path "$BRANCH_NAME")
