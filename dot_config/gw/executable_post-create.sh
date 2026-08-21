@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # gw の POST_CREATE_CMD 用: 作成した worktree を herdr workspace として追加する
 # - session 名 = メインリポジトリのディレクトリ名
+#   (英数字と ._- 以外は - に置換し、連続する - は 1 つに畳む)
+#   例外: herdr セッション内から呼ばれた場合は、そのセッションの名前をそのまま使う
 # - session が未起動なら headless server として自動起動
-# - 同じ label の workspace が既にあれば再利用し、claude が起動しているペインを探す
-#   (見つからなければそのペインで claude を再起動する)
+# - 同じ worktree が既に開かれていれば再利用し、claude が起動しているペインを探す
+#   (見つからなければ root pane で claude を起動し直す)
 #
 # gw から渡される環境変数:
 #   GW_WORKTREE_PATH    worktree の絶対パス (必須)
@@ -47,6 +49,11 @@ if [ -n "$hdr_gw_child" ]; then
   claude_launch_cmd="HDR_GW_CHILD=1 claude"
 fi
 
+command -v herdr > /dev/null || {
+  echo "post-create: herdr command not found in PATH" >&2
+  exit 1
+}
+
 command -v jq > /dev/null || {
   echo "post-create: jq command not found in PATH" >&2
   exit 1
@@ -55,9 +62,32 @@ command -v jq > /dev/null || {
 : "${GW_WORKTREE_PATH:?GW_WORKTREE_PATH is required}"
 : "${GW_MAIN_REPO_PATH:?GW_MAIN_REPO_PATH is required}"
 
+# $HOME 完全一致か、直後が `/` の場合だけ短縮する
+# (境界を見ない前方一致だと /Users/<name>foo が ~foo になる)
+tildify() {
+  local tilde='~'
+  case "$1" in
+    "$HOME") printf '%s' "$tilde" ;;
+    "$HOME"/*) printf '%s%s' "$tilde" "${1#"$HOME"}" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+# GW_WORKTREE_PATH がディレクトリでないと herdr 側で落ちる (不在なら worktree_not_found)。
+# 原因が分かる形で先に止める
+if [ ! -d "$GW_WORKTREE_PATH" ]; then
+  echo "post-create: GW_WORKTREE_PATH is not a directory: $(tildify "$GW_WORKTREE_PATH")" >&2
+  exit 1
+fi
+
 repo_name="$(basename "$GW_MAIN_REPO_PATH")"
 branch="${GW_BRANCH_NAME:-$(basename "$GW_WORKTREE_PATH")}"
-label="$repo_name:$branch"
+# メインリポジトリの checkout は worktree グループの親になる
+if [ "$GW_WORKTREE_PATH" = "$GW_MAIN_REPO_PATH" ]; then
+  label="$repo_name"
+else
+  label="$repo_name:$branch"
+fi
 
 focus_flag="--focus"
 if [ -n "$no_focus" ]; then
@@ -77,7 +107,8 @@ if [ -n "${HERDR_SOCKET_PATH:-}" ]; then
     session="default"
   fi
 else
-  session="$repo_name"
+  # session 名は ~/.config/herdr/sessions/<name>/ のディレクトリ名になるため文字を絞る
+  session="$(printf '%s' "$repo_name" | tr -cs 'A-Za-z0-9._-' '-')"
 fi
 
 # session が running でなければ headless server として起動
@@ -107,68 +138,63 @@ fi
 # workspace 内で claude agent として self-report しているペインを探す
 find_claude_pane() {
   local ws_id="$1"
-  herdr --session "$session" pane list --workspace "$ws_id" 2> /dev/null \
-    | jq -r '.result.panes[]? | select(.agent == "claude") | .pane_id' \
-    | head -n 1
+  # 絞り込みを jq 内で完結させる。`| head -n 1` にすると pipefail 下で
+  # jq が SIGPIPE を受けてパイプライン全体が失敗しうる
+  herdr --session "$session" pane list --workspace "$ws_id" \
+    | jq -r 'first(.result.panes[]? | select(.agent == "claude") | .pane_id) // empty'
 }
 
-# workspace の先頭ペイン (claude 起動先の既定候補) を取得する
-first_pane_of_workspace() {
-  local ws_id="$1"
-  herdr --session "$session" pane list --workspace "$ws_id" 2> /dev/null \
-    | jq -r '.result.panes[0].pane_id // empty'
-}
-
-existing_ws=$(
-  herdr --session "$session" workspace list 2> /dev/null \
-    | jq -r --arg label "$label" \
-      '.result.workspaces[]? | select(.label == $label) | .workspace_id' \
-    | head -n 1
-)
-
-reused=false
 hunk_pane=""
 
-if [ -n "$existing_ws" ]; then
-  reused=true
-  ws_id="$existing_ws"
-  if [ -z "$no_focus" ]; then
-    herdr --session "$session" workspace focus "$ws_id" > /dev/null 2>&1
-  fi
+# worktree open で開くと workspace に Git provenance が付き、親リポジトリの
+# workspace と同じグループとしてサイドバーに並ぶ (--cwd はメインリポジトリを指す)。
+# 既存があれば already_open として同じ workspace が返る
+if ! ws_json=$(herdr --session "$session" worktree open \
+  --cwd "$GW_MAIN_REPO_PATH" \
+  --path "$GW_WORKTREE_PATH" \
+  --label "$label" \
+  "$focus_flag"); then
+  echo "post-create: herdr worktree open failed (label: $label, path: $(tildify "$GW_WORKTREE_PATH"))" >&2
+  exit 1
+fi
+ws_id=$(echo "$ws_json" | jq -r '.result.workspace.workspace_id // empty')
+# root_pane は already_open の真偽によらず返り、同じ応答の tab の root pane を指す
+root_pane=$(echo "$ws_json" | jq -r '.result.root_pane.pane_id // empty')
+if [ -z "$ws_id" ] || [ -z "$root_pane" ]; then
+  echo "post-create: herdr worktree open returned no workspace/root pane (label: $label, path: $(tildify "$GW_WORKTREE_PATH"))" >&2
+  exit 1
+fi
+reused=$(echo "$ws_json" | jq -r '.result.already_open // false')
+if [ "$reused" != "true" ] && [ "$reused" != "false" ]; then
+  echo "post-create: herdr worktree open returned a non-boolean already_open: $reused (label: $label, path: $(tildify "$GW_WORKTREE_PATH"))" >&2
+  exit 1
+fi
 
+if [ "$reused" = "true" ]; then
   claude_pane=$(find_claude_pane "$ws_id")
+  # 子セッション起動目的の呼び出しで呼び出し元自身のペインが解決されると、
+  # そのペインへ claude 起動コマンドが送られ、呼び出し元が自分自身に依頼を送ることになる。
+  # どちらの送出よりも前で止める
+  if [ -n "$hdr_gw_child" ] && [ "${claude_pane:-$root_pane}" = "${HERDR_PANE_ID:-}" ]; then
+    echo "post-create: resolved pane is the caller's own pane (claude pane: ${claude_pane:-none}, root pane: $root_pane, label: $label, path: $(tildify "$GW_WORKTREE_PATH"))" >&2
+    exit 1
+  fi
   if [ -z "$claude_pane" ]; then
     # 既存 workspace に claude を報告しているペインが見つからない
-    # (claude が終了している等) 場合、先頭ペインで claude を起動し直す
-    claude_pane=$(first_pane_of_workspace "$ws_id")
-    if [ -z "$claude_pane" ]; then
-      echo "post-create: existing workspace has no panes to launch claude in (workspace: $ws_id, label: $label)" >&2
-      exit 1
-    fi
+    # (claude が終了している等) 場合、root pane で claude を起動し直す
+    claude_pane="$root_pane"
     herdr --session "$session" pane send-text "$claude_pane" "$claude_launch_cmd"$'\n' > /dev/null 2>&1 || true
   fi
 else
-  ws_json=$(herdr --session "$session" workspace create \
-    --cwd "$GW_WORKTREE_PATH" \
-    --label "$label" \
-    "$focus_flag" 2> /dev/null)
-  ws_id=$(echo "$ws_json" | jq -r '.result.workspace.workspace_id // empty')
-  if [ -z "$ws_id" ]; then
-    echo "post-create: failed to create herdr workspace (label: $label, cwd: $GW_WORKTREE_PATH)" >&2
-    exit 1
-  fi
+  claude_pane="$root_pane"
 
-  claude_pane=$(first_pane_of_workspace "$ws_id")
-  if [ -z "$claude_pane" ]; then
-    echo "post-create: failed to resolve root pane of new workspace (workspace: $ws_id, label: $label)" >&2
-    exit 1
-  fi
-
-  split_json=$(herdr --session "$session" pane split "$claude_pane" \
+  # hunk ペインは無くても以降の処理は成立するため、分割失敗では止めない
+  if split_json=$(herdr --session "$session" pane split "$claude_pane" \
     --direction right \
     --cwd "$GW_WORKTREE_PATH" \
-    --no-focus 2> /dev/null)
-  hunk_pane=$(echo "$split_json" | jq -r '.result.pane.pane_id // empty')
+    --no-focus); then
+    hunk_pane=$(echo "$split_json" | jq -r '.result.pane.pane_id // empty')
+  fi
 
   herdr --session "$session" pane send-text "$claude_pane" "$claude_launch_cmd"$'\n' > /dev/null 2>&1 || true
   if [ -n "$hunk_pane" ]; then
@@ -177,15 +203,12 @@ else
 fi
 
 if [ -n "$format_json" ]; then
-  tab_id=$(herdr --session "$session" pane get "$claude_pane" 2> /dev/null \
-    | jq -r '.result.pane.tab_id // empty')
   jq -cn \
     --arg workspace_id "$ws_id" \
-    --arg tab_id "$tab_id" \
     --arg claude_pane_id "$claude_pane" \
     --arg hunk_pane_id "$hunk_pane" \
     --argjson reused "$reused" \
-    '{workspace_id: $workspace_id, tab_id: $tab_id, claude_pane_id: $claude_pane_id}
+    '{workspace_id: $workspace_id, claude_pane_id: $claude_pane_id}
      + (if $hunk_pane_id != "" then {hunk_pane_id: $hunk_pane_id} else {} end)
      + {reused: $reused}'
 fi
