@@ -14,9 +14,11 @@ command -v jq >/dev/null || {
 }
 
 # 別セッション内から起動された場合の socket 誤ルーティングを防ぐため env を剥がす。
+# 剥がすのは herdr がペインに注入する変数のみ。HERDR_CONFIG_PATH のような
+# 利用者が設定する変数は exec herdr に引き継ぐ必要があるため残す。
 # nested 判定用に HERDR_ENV の有無だけ HDR_NESTED に退避しておく。
 HDR_NESTED="${HERDR_ENV:-}"
-unset HERDR_ENV HERDR_PANE_ID HERDR_SOCKET_PATH HERDR_TAB_ID HERDR_WORKSPACE_ID
+unset HERDR_ENV HERDR_PANE_ID HERDR_SESSION HERDR_SOCKET_PATH HERDR_TAB_ID HERDR_WORKSPACE_ID
 
 # PC 再起動などで server プロセスが消えても socket ファイルは残るため、
 # 存在チェックだけでは stale socket を掴んで Connection refused になる。
