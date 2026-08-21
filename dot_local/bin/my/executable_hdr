@@ -98,6 +98,18 @@ if [ -n "$HDR_NESTED" ]; then
 fi
 
 if git rev-parse --show-toplevel > /dev/null 2>&1; then
+  # --path-format を付けないと cwd 次第で片方だけ相対パスになり比較が成立しない
+  if ! GIT_DIR_ABS=$(git rev-parse --path-format=absolute --git-dir) \
+    || ! GIT_COMMON_DIR_ABS=$(git rev-parse --path-format=absolute --git-common-dir); then
+    echo "hdr: failed to resolve git directories" >&2
+    exit 1
+  fi
+  # linked worktree は git-dir が .git/worktrees/<name> を指す。
+  # worktree の session はメインリポジトリ側に属するため、ここでは開かせない
+  if [ "$GIT_DIR_ABS" != "$GIT_COMMON_DIR_ABS" ]; then
+    echo "hdr: cannot start from a linked worktree; run hdr in the main repository and open worktrees with gw" >&2
+    exit 1
+  fi
   PROJECT_ROOT=$(git rev-parse --show-toplevel)
 else
   PROJECT_ROOT=$(pwd)
