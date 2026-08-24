@@ -33,7 +33,7 @@ command -v git >/dev/null || { echo "git not found" >&2; exit 1; }
 command -v jq  >/dev/null || { echo "jq not found" >&2; exit 1; }
 
 PR_EXISTS=1
-PR_JSON=$(gh pr view --json baseRefName,headRefName,number,title,isDraft 2>/dev/null) || PR_EXISTS=0
+PR_JSON=$(gh pr view --json baseRefName,headRefName,number,title,isDraft,state 2>/dev/null) || PR_EXISTS=0
 
 if [ "$PR_EXISTS" -eq 1 ]; then
   BASE_REF=$(printf '%s' "$PR_JSON" | jq -r '.baseRefName')
@@ -41,8 +41,11 @@ if [ "$PR_EXISTS" -eq 1 ]; then
   PR_NUM=$(printf '%s'  "$PR_JSON" | jq -r '.number')
   PR_TITLE=$(printf '%s' "$PR_JSON" | jq -r '.title')
   PR_IS_DRAFT=$(printf '%s' "$PR_JSON" | jq -r '.isDraft')
+  PR_STATE=$(printf '%s' "$PR_JSON" | jq -r '.state')
 
-  if [ "$PR_IS_DRAFT" = "true" ]; then
+  if [ "$PR_STATE" != "OPEN" ]; then
+    echo "PR #${PR_NUM} is ${PR_STATE}; skipping comment."
+  elif [ "$PR_IS_DRAFT" = "true" ]; then
     echo "PR #${PR_NUM} is Draft; skipping comment."
   fi
 
@@ -103,7 +106,7 @@ else
   echo "  git push --force-with-lease --force-if-includes origin ${HEAD_REF}"
 fi
 
-if [ "$PR_EXISTS" -eq 0 ] || [ "$PR_IS_DRAFT" = "true" ]; then
+if [ "$PR_EXISTS" -eq 0 ] || [ "$PR_STATE" != "OPEN" ] || [ "$PR_IS_DRAFT" = "true" ]; then
   exit 0
 fi
 
