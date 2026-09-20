@@ -47,13 +47,13 @@ if [ "$#" -eq 0 ]; then
       continue
     fi
 
-    rel="${wt_real#$MAIN_REPO_ROOT}"
+    rel="${wt_real#"$MAIN_REPO_ROOT"}"
     if [ -z "$rel" ]; then
       worktree_lines+=("/${rest}")
       candidate="$wt_path"
     else
       worktree_lines+=("${rel}${rest}")
-      candidate="${wt_path%$rel}"
+      candidate="${wt_path%"$rel"}"
       candidate="${candidate%/}"
     fi
     if [ -z "$ROOT_LINK" ] && [ "$candidate" != "$MAIN_REPO_ROOT" ]; then
