@@ -144,6 +144,11 @@ find_claude_pane() {
     | jq -r 'first(.result.panes[]? | select(.agent == "claude") | .pane_id) // empty'
 }
 
+# 送出に失敗しても workspace 自体は使えるため、失敗では止めない
+send_line() {
+  herdr --session "$session" pane send-text "$1" "$2"$'\n' > /dev/null 2>&1 || true
+}
+
 hunk_pane=""
 
 # worktree open で開くと workspace に Git provenance が付き、親リポジトリの
@@ -183,7 +188,7 @@ if [ "$reused" = "true" ]; then
     # 既存 workspace に claude を報告しているペインが見つからない
     # (claude が終了している等) 場合、root pane で claude を起動し直す
     claude_pane="$root_pane"
-    herdr --session "$session" pane send-text "$claude_pane" "$claude_launch_cmd"$'\n' > /dev/null 2>&1 || true
+    send_line "$claude_pane" "$claude_launch_cmd"
   fi
 else
   claude_pane="$root_pane"
@@ -196,9 +201,9 @@ else
     hunk_pane=$(echo "$split_json" | jq -r '.result.pane.pane_id // empty')
   fi
 
-  herdr --session "$session" pane send-text "$claude_pane" "$claude_launch_cmd"$'\n' > /dev/null 2>&1 || true
+  send_line "$claude_pane" "$claude_launch_cmd"
   if [ -n "$hunk_pane" ]; then
-    herdr --session "$session" pane send-text "$hunk_pane" $'hunk diff --watch\n' > /dev/null 2>&1 || true
+    send_line "$hunk_pane" "hunk diff --watch"
   fi
 fi
 
