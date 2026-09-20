@@ -11,6 +11,7 @@
 #   GW_WORKTREE_PATH    worktree の絶対パス (必須)
 #   GW_MAIN_REPO_PATH   メインリポジトリの絶対パス (必須)
 #   GW_BRANCH_NAME      ブランチ名 (--detach 時は空)
+#   GW_START_POINT_SHA  差分の起点コミット SHA (空の場合がある)
 #   GW_TARGET_FILE      -f 指定時のファイル絶対パス
 #   GW_POST_SCRIPT_ARGS gw -p/--post-script-args で渡された、スペース区切りのトークン列
 #                         skip         ... herdr 連携を一切行わず即終了する
@@ -203,7 +204,7 @@ else
 
   send_line "$claude_pane" "$claude_launch_cmd"
   if [ -n "$hunk_pane" ]; then
-    send_line "$hunk_pane" "hunk diff --watch"
+    send_line "$hunk_pane" "hunk diff${GW_START_POINT_SHA:+ $GW_START_POINT_SHA}"
   fi
 fi
 

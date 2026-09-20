@@ -2,6 +2,10 @@
 
 # Git Worktree command
 
+# set -u は使わない。フラグだけを渡したときの `set -- "${POSITIONAL[@]}"` が
+# bash 3.2 (macOS 同梱) では空配列展開で unbound variable になる。
+# 処理を止めるべき失敗は呼び出し箇所ごとに判定して exit 1 する
+
 # デフォルト設定 (設定ファイルで上書き可能)
 REMOTE="origin"
 WORKTREE_DIR=".w"
@@ -113,6 +117,8 @@ if [ -n "$NO_EDITOR" ]; then
   exec 1>&2
 fi
 
+START_POINT_SHA=""
+
 if [ -n "$DETACH" ]; then
   if [ -z "$BRANCH_NAME" ]; then
     echo "Error: --detach にはコミット指定が必要です" >&2
@@ -140,6 +146,11 @@ elif [ -z "$(git branch --list "$BRANCH_NAME")" ]; then
       git branch "$BRANCH_NAME"
     else
       git branch "$BRANCH_NAME" "$START_POINT"
+    fi
+    # 作成直後のブランチ先端は基点コミットそのもの
+    if ! START_POINT_SHA=$(git rev-parse --verify "refs/heads/$BRANCH_NAME^{commit}" 2> /dev/null); then
+      echo "Error: 作成したブランチを解決できませんでした: $BRANCH_NAME" >&2
+      exit 1
     fi
   else
     git fetch "$REMOTE" "$BRANCH_NAME" > /dev/null 2>&1
@@ -241,6 +252,7 @@ run_post_create_cmd() {
   GW_WORKTREE_PATH="$WORKTREE_PATH" \
     GW_MAIN_REPO_PATH="$MAIN_REPO_ROOT" \
     GW_BRANCH_NAME="$BRANCH_NAME" \
+    GW_START_POINT_SHA="$START_POINT_SHA" \
     GW_TARGET_FILE="${TARGET_FILE:+$WORKTREE_PATH/$TARGET_FILE}" \
     GW_POST_SCRIPT_ARGS="$POST_SCRIPT_ARGS" \
     "$POST_CREATE_CMD"
