@@ -6,6 +6,8 @@
 	email = 91452566+KazuProg@users.noreply.github.com
 [include]
 	path = config.local
+[merge]
+	autoStash = true
 [worktree]
 	useRelativePaths = true
 [alias]
