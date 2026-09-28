@@ -171,6 +171,33 @@ get_worktree_path() {
   return 1
 }
 
+# 指定パスを占有している worktree のチェックアウト状態を返す。未登録なら非ゼロ
+describe_worktree_at() {
+  local target line matched=""
+  # porcelain の worktree 行は symlink 解決済みの絶対パスで出るため揃える
+  target=$(realpath -- "$1") || return 1
+  while IFS= read -r line; do
+    case "$line" in
+      "worktree "*)
+        if [ "${line#worktree }" = "$target" ]; then matched=1; else matched=""; fi
+        ;;
+      detached)
+        if [ -n "$matched" ]; then
+          printf 'detached HEAD\n'
+          return 0
+        fi
+        ;;
+      "branch "*)
+        if [ -n "$matched" ]; then
+          printf 'branch %s\n' "${line#branch refs/heads/}"
+          return 0
+        fi
+        ;;
+    esac
+  done < <(git worktree list --porcelain)
+  return 1
+}
+
 ensure_excluded() {
   local pattern=$1
   local exclude_file
@@ -217,9 +244,17 @@ else
   # Worktreeが存在していない場合は作成
   if [ -z "$(get_worktree_path "$BRANCH_NAME")" ]; then
     BRANCH_DIR_NAME=${BRANCH_NAME//\//__}
-    # このパスで git が出す fatal は `already used by worktree at ...` で prune を案内しないため添える
-    if ! git worktree add -- "$MAIN_REPO_ROOT/$WORKTREE_DIR/$BRANCH_DIR_NAME" "$BRANCH_NAME" > /dev/null; then
-      echo "Error: worktree の作成に失敗しました (実体の消えた登録が残っている場合は git worktree prune を実行)" >&2
+    WORKTREE_TARGET="$MAIN_REPO_ROOT/$WORKTREE_DIR/$BRANCH_DIR_NAME"
+    if ! git worktree add -- "$WORKTREE_TARGET" "$BRANCH_NAME" > /dev/null; then
+      if [ ! -e "$WORKTREE_TARGET" ]; then
+        # 実体の消えた登録が別パスにある場合、git の fatal は `already used by worktree at ...` で prune を案内しないため添える
+        echo "Error: worktree の作成に失敗しました (実体の消えた登録が残っている場合は git worktree prune を実行)" >&2
+      elif OCCUPANT=$(describe_worktree_at "$WORKTREE_TARGET"); then
+        echo "Error: $WORKTREE_TARGET は別の状態 ($OCCUPANT) の worktree として登録済みです" >&2
+        echo "       同ディレクトリで git switch $BRANCH_NAME するか、git worktree remove してから再実行してください" >&2
+      else
+        echo "Error: $WORKTREE_TARGET が worktree 登録の無いディレクトリとして存在します。中身を退避・削除してから再実行してください" >&2
+      fi
       exit 1
     fi
   fi
