@@ -1,21 +1,118 @@
 #!/usr/bin/env bash
-# Block non-fast-forward pushes and prompt to use `git fpush` instead.
-# Bypass with: SKIP_FPUSH_HOOK=1 git push ...
+# Block two kinds of pushes:
+#   - squash!/fixup!/amend! commits heading to a PR that has left Draft
+#   - non-fast-forward pushes (use `git fpush` instead)
+#
+# Bypass with: SKIP_FIXUP_HOOK=1 / SKIP_FPUSH_HOOK=1 git push ...
+# SKIP_FPUSH_HOOK skips only the non-fast-forward guard; the fixup guard
+# applies regardless.
 #
 # Git passes on stdin, one line per ref being pushed:
 #   <local_ref> <local_sha> <remote_ref> <remote_sha>
 
 set -euo pipefail
 
+ZERO=0000000000000000000000000000000000000000
+
+# stdin can be read only once, and both guards below need the same lines.
+PUSH_REFS="$(cat)"
+
+# Squashing squash!/fixup!/amend! commits rewrites the history a reviewer is
+# already reading, so they have to be reworded into normal commits before
+# reaching a PR that has left Draft.
+# Undecidable cases (gh absent, no PR, git log or grep failure, API failure)
+# fall through.
+if [ "${SKIP_FIXUP_HOOK:-0}" != "1" ] && command -v gh > /dev/null; then
+  FIXUP_REFS=()
+
+  while read -r local_ref local_sha remote_ref remote_sha; do
+    # A here-string feeds one empty line when PUSH_REFS is empty.
+    if [ -z "$local_sha" ]; then
+      continue
+    fi
+    # Deletion push: the commits are already on the remote, nothing to inspect.
+    if [ "$local_sha" = "$ZERO" ]; then
+      continue
+    fi
+    # Branch not on the remote yet: no range to inspect, and no PR can point at
+    # a branch that is not there.
+    if [ "$remote_sha" = "$ZERO" ]; then
+      continue
+    fi
+    # --first-parent drops every commit brought in by a merge. Merging the base
+    # branch in is the case this targets: those commits are someone else's and
+    # an autosquash run from here cannot reach them, so the message below would
+    # ask for something the pusher cannot do. Commits merged in from a side
+    # branch are dropped too, and an autosquash would have reached those.
+    # Stderr joins the value so the warning can carry it. A stray line can only
+    # add a false match here, which blocks rather than lets a push through.
+    if ! subjects="$(git log --first-parent --format='%s' \
+      "$remote_sha..$local_sha" -- 2>&1)"; then
+      echo "warning: pre-push: cannot inspect $remote_sha..$local_sha: $subjects" >&2
+      continue
+    fi
+    # errexit would end the hook on the no-match exit 1, which is the common
+    # case, so it is off while the status is taken.
+    set +e
+    grep -qE -- '^(squash|fixup|amend)!' <<< "$subjects"
+    grep_rc=$?
+    set -e
+    if [ "$grep_rc" -gt 1 ]; then
+      echo "warning: pre-push: cannot scan subjects for $remote_ref" >&2
+      continue
+    fi
+    if [ "$grep_rc" -ne 0 ]; then
+      continue
+    fi
+    # Only branch refs can carry a PR.
+    case "$remote_ref" in
+      refs/heads/*) ;;
+      *) continue ;;
+    esac
+    branch="${remote_ref#refs/heads/}"
+    # pr list takes the value as a head branch name only, so an all-digit branch
+    # is not read as a PR number, and it exits 0 with an empty list when the
+    # branch has no open PR. Stderr stays off the value: a stray line there
+    # would break the integer test and let the push through.
+    if ! non_draft="$(gh pr list --state open --head "$branch" \
+      --json isDraft --jq '[.[] | select(.isDraft | not)] | length' < /dev/null)"; then
+      echo "warning: pre-push: PR lookup failed for $branch" >&2
+      continue
+    fi
+    if [ "$non_draft" -gt 0 ]; then
+      FIXUP_REFS+=("$local_ref -> $remote_ref")
+    fi
+  done <<< "$PUSH_REFS"
+
+  if [ "${#FIXUP_REFS[@]}" -gt 0 ]; then
+    {
+      echo
+      echo "error: squash!/fixup!/amend! commits are heading to a PR that has left Draft:"
+      for r in "${FIXUP_REFS[@]}"; do
+        echo "  - $r"
+      done
+      echo
+      echo "  後で autosquash するとレビュー中の履歴を書き換えることになります."
+      echo "  通常コミット (fix: / docs: / chore: ...) に書き換えてから push してください."
+      echo "  bypass: SKIP_FIXUP_HOOK=1 git push ..."
+      echo
+    } >&2
+    exit 1
+  fi
+fi
+
 if [ "${SKIP_FPUSH_HOOK:-0}" = "1" ]; then
   exit 0
 fi
 
-ZERO=0000000000000000000000000000000000000000
 NON_FF_FOUND=0
 NON_FF_REFS=()
 
 while read -r local_ref local_sha remote_ref remote_sha; do
+  # A here-string feeds one empty line when PUSH_REFS is empty.
+  if [ -z "$local_sha" ]; then
+    continue
+  fi
   # Deletion push: local_sha == zero. Allow (harmless here).
   if [ "$local_sha" = "$ZERO" ]; then
     continue
@@ -29,7 +126,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     NON_FF_FOUND=1
     NON_FF_REFS+=("$local_ref -> $remote_ref")
   fi
-done
+done <<< "$PUSH_REFS"
 
 if [ "$NON_FF_FOUND" -eq 1 ]; then
   {
