@@ -22,29 +22,56 @@ unset HERDR_ENV HERDR_PANE_ID HERDR_SESSION HERDR_SOCKET_PATH HERDR_TAB_ID HERDR
 
 # PC 再起動などで server プロセスが消えても socket ファイルは残るため、
 # 存在チェックだけでは stale socket を掴んで Connection refused になる。
-# `herdr status <kind> --json` の .status が "running" 以外の場合のみ socket を削除する。
+# `herdr status server --json` の .status が "running" 以外の場合のみ socket を削除する。
+# client socket も server が listen するものなので server の状態で判定する
+# (`herdr status client --json` は client バイナリ自身の情報だけを返し、.status を持たない)。
 # 取得失敗時 (herdr 側の一時的な不調等) は削除しない (誤って健全な socket を消さないため)。
 # nc -U -z は herdr プロトコルと非互換で false-positive (running でも fail) を起こすため
 # 使わない。プロセス kill も、同じ socket path を握る PID 群には健全な listener と
 # 孤立 FD 保持者が混在し得るため行わない (誤って健全 server を殺すリスクを回避)。
 remove_if_stale_socket() {
   local sock="$1"
-  local kind="$2"
   local json status
   [ -S "$sock" ] || return 0
-  json="$(herdr status "$kind" --json 2>/dev/null)" || return 0
+  json="$(herdr status server --json 2>/dev/null)" || return 0
   status="$(printf '%s' "$json" | jq -r '.status // empty' 2>/dev/null)" || return 0
   # `&&` 複合コマンド内の非ゼロ終了は set -e に引っかからず fall-through する (POSIX 例外)
   [ "$status" = "running" ] && return 0
   rm -f "$sock"
 }
 
-remove_if_stale_socket "$HOME/.config/herdr/herdr.sock" server
-remove_if_stale_socket "$HOME/.config/herdr/herdr-client.sock" client
+server_running() {
+  local json
+  json="$(herdr "$@" status server --json 2>/dev/null)" || return 1
+  [ "$(printf '%s' "$json" | jq -r '.running' 2>/dev/null)" = "true" ]
+}
+
+# SSH 切断後も server (と配下の agent) を生かすため、attach 前に server を tty から切り離して起動する。
+# herdr 0.9.1 の server は自前で daemon 化せず、bare `herdr` が自動起動した server は起動元 tty の session に属したままになる。
+# また server は SIGHUP を自分でハンドルして終了するため nohup では防げない。setsid で別 session に移す。
+# (Linux での実測: /proc/<pid>/status の SigCgt bit0 が立ち、`kill -HUP` で graceful shutdown する)
+# setsid が無い環境 (macOS) では nohup にフォールバックする (SIGHUP による終了は防げない)。
+# 引数は herdr のグローバルオプション (--session <name> 等) をそのまま渡す。
+# HERDR_STARTUP_CWD は bare `herdr` が自動起動する server に渡す変数と同じもので、最初の pane の cwd になる。
+ensure_detached_server() {
+  server_running "$@" && return 0
+  local detach=nohup
+  if command -v setsid >/dev/null; then
+    detach=setsid
+  fi
+  HERDR_STARTUP_CWD="$PWD" "$detach" herdr "$@" server </dev/null >/dev/null 2>&1 &
+  for _ in $(seq 1 50); do
+    server_running "$@" && return 0
+    sleep 0.1
+  done
+  herdr "$@" status server --json >&2 || true
+  return 1
+}
+
+remove_if_stale_socket "$HOME/.config/herdr/herdr.sock"
+remove_if_stale_socket "$HOME/.config/herdr/herdr-client.sock"
 
 if [ "$PWD" = "$HOME" ]; then
-  SOCK="$HOME/.config/herdr/herdr.sock"
-
   # ホームで開く workspace セット: "<cwd>|<label>"
   # 環境変数 HDR_HOME_ENTRIES で上書き可能 (改行区切り、フォーマットは同じ)
   ENTRIES=()
@@ -59,18 +86,9 @@ if [ "$PWD" = "$HOME" ]; then
     )
   fi
 
-  if [ ! -S "$SOCK" ]; then
-    nohup herdr server >/dev/null 2>&1 &
-
-    for _ in $(seq 1 50); do
-      [ -S "$SOCK" ] && break
-      sleep 0.1
-    done
-
-    if [ ! -S "$SOCK" ]; then
-      echo "hdr: failed to start herdr default server" >&2
-      exit 1
-    fi
+  if ! ensure_detached_server; then
+    echo "hdr: failed to start herdr default server" >&2
+    exit 1
   fi
 
   existing=$(herdr workspace list 2>/dev/null || echo '{}')
@@ -117,5 +135,10 @@ fi
 
 BASE_NAME=$(basename -- "$PROJECT_ROOT")
 SESSION_NAME=$(printf '%s' "$BASE_NAME" | tr -cs 'A-Za-z0-9._-' '-')
+
+if ! ensure_detached_server --session "$SESSION_NAME"; then
+  echo "hdr: failed to start herdr server for session $SESSION_NAME" >&2
+  exit 1
+fi
 
 exec herdr --session "$SESSION_NAME"
