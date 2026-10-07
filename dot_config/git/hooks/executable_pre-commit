@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Run the repository-local pre-commit hook ($GIT_COMMON_DIR/hooks/pre-commit).
+# Git skips that directory while core.hooksPath points here, so relay to it.
+
+set -euo pipefail
+
+hook="$(git rev-parse --git-common-dir)/hooks/pre-commit"
+if [ -x "$hook" ]; then
+  exec "$hook" "$@"
+fi
