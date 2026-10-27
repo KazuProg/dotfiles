@@ -4,3 +4,10 @@ agent_panel_sort = "priority"
 
 [ui.sidebar.agents]
 row_gap = 1
+
+[[keys.command]]
+key = "prefix+t"
+type = "popup"
+command = "cd \"$HERDR_ACTIVE_PANE_CWD\" && exec \"${SHELL:-/bin/sh}\""
+width = "80%"
+height = "80%"
